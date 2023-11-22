@@ -1,0 +1,14 @@
+{-# STDLIB_VERSION 5 #-}
+{-# CONTENT_TYPE EXPRESSION #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+
+let firstUser = base58'<public key of user 1>'
+let secondUser = base58'<public key of user 2>'
+let thirdUser = base58'<public key of user 3>'
+
+let firstSigned = if(sigVerify(tx.bodyBytes, tx.proofs[0], firstUser)) then 1 else 0
+let secondSigned = if(sigVerify(tx.bodyBytes, tx.proofs[1], secondUser)) then 1 else 0
+let thirdSigned = if(sigVerify(tx.bodyBytes, tx.proofs[2], thirdUser)) then 1 else 0
+
+firstSigned + secondSigned + thirdSigned >= 2
