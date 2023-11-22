@@ -1,0 +1,90 @@
+{-# STDLIB_VERSION 5 #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+{-# CONTENT_TYPE DAPP #-}
+
+
+let nerdId = base58'skZN4EKZR4SqCL49ds2n1f5pbd4CmnWcrcH7xgCdsrb'   # NERD - change this to the asset ID of the token you want to stake.
+
+
+let Scale = 1000000000000
+
+
+func tryGetInteger (key: String) = match getInteger(this, key) {
+    case b: Int => 
+        b
+    case _ => 
+        0
+}
+
+
+func claimResult (address: Address) = {    let addressStr = toString(address)
+    let assetIdStr = toBase58String(nerdId)
+    let currentInterest = tryGetInteger("global_lastCheck_" + assetIdStr + "_interest")    
+    let lastCheckInterest = tryGetInteger(addressStr + "_lastCheck_" + assetIdStr + "_interest")
+    let stakedAmount = tryGetInteger(addressStr + "_" + assetIdStr + "_staked")
+    let reward = if (lastCheckInterest > 0)
+        then fraction(currentInterest - lastCheckInterest, stakedAmount, Scale)        
+        else 0
+    [        
+        IntegerEntry(addressStr + "_lastCheck_" + assetIdStr + "_interest", currentInterest), 
+        IntegerEntry(addressStr + "_" + assetIdStr + "_claimed", tryGetInteger(addressStr + "_" + assetIdStr + "_claimed") + reward),        
+        IntegerEntry(addressStr + "_" + assetIdStr + "_lastClaim", lastBlock.timestamp), 
+        ScriptTransfer(address, reward, assetIdStr.fromBase58String())   
+    ]
+}
+
+
+
+@Callable(i)
+func stake () = {
+    let amount = i.payments[0].amount
+    let addressStr = toString(i.caller)
+    let assetIdStr = toBase58String(nerdId)  
+    let currentInterest = tryGetInteger("global_lastCheck_" + assetIdStr + "_interest")
+    let totalStakedAmount = tryGetInteger("global_staked")
+    if (i.payments[0].assetId != nerdId)
+        then throw("wrong asset attached")
+        else 
+        claimResult(i.caller) ++ 
+        [
+        IntegerEntry("global_staked", (totalStakedAmount + amount)), 
+        IntegerEntry(addressStr + "_" + assetIdStr + "_staked",tryGetInteger(addressStr + "_" + assetIdStr + "_staked") + amount)
+        ]
+    }
+
+
+@Callable(i)
+func unStake(amount: Int) = {
+    let addressStr = toString(i.caller)
+    let assetIdStr = toBase58String(nerdId) 
+    let stakedAmount = tryGetInteger((addressStr + "_" + assetIdStr + "_staked"))
+    if ((amount > stakedAmount))
+        then throw("you don't have tokens available")
+        else (claimResult(i.caller) ++ [IntegerEntry((addressStr + "_" + assetIdStr + "_staked"), (stakedAmount - amount)), IntegerEntry("global_staked", (tryGetInteger("global_staked") - amount)), ScriptTransfer(i.caller, amount, nerdId)])
+    }
+
+
+
+@Callable(i)
+func claimReward () = claimResult(i.caller)
+
+
+
+@Callable(i)
+func topUpReward () = {
+    let amount = fraction(i.payments[0].amount, 9, 10)
+    let assetIdStr = toBase58String(i.payments[0].assetId.value())
+    let currentInterest = tryGetInteger((("global_lastCheck_" + assetIdStr) + "_interest"))
+    let totalStakedAmount = tryGetInteger("global_staked")
+    let interestDelta = if ((totalStakedAmount > 0))
+        then fraction(amount, Scale, totalStakedAmount)
+        else 0
+    if ((i.payments[0].assetId != nerdId))
+        then throw("wrong asset attached")
+        else (
+          [IntegerEntry((("global_" + assetIdStr) + "_earnings"), (tryGetInteger((("global_" + assetIdStr) + "_earnings")) + amount)), IntegerEntry((("global_lastCheck_" + assetIdStr) + "_interest"), (currentInterest + interestDelta))], amount)
+    }
+
+
+@Verifier(tx)
+func verify () = sigVerify(tx.bodyBytes, tx.proofs[0], tx.senderPublicKey)
